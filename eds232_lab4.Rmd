@@ -1,0 +1,81 @@
+---
+title: "Lab 4 - Deep Learning"
+author: "Alex Vand"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    number_sections: true
+    code_folding: hide
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+# R
+
+## Install python for R
+
+
+```{r}
+# load libraries
+librarian::shelf(
+  devtools,
+  keras,
+  reticulate,
+  tensorflow)
+
+# show library versions and paths
+session_info() 
+
+# install Python into user space
+(reticulate::miniconda_path()) # show the Python path
+if (!file.exists(reticulate::miniconda_path()))
+  reticulate::install_miniconda()
+
+# install keras with tensorflow
+if (!keras::is_keras_available())
+  keras::install_keras()
+```
+
+
+## Loading the MNIST dataset in Keras
+
+
+
+## The network architecture
+
+
+
+## The compilation step
+
+
+
+## Preparing the image data
+
+
+
+## Preparing the labels
+
+
+
+# Python
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
