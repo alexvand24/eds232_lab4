@@ -150,8 +150,6 @@ metrics
 ```
 
 
-# Python
-
 
 
 # iNaturalist
@@ -161,15 +159,14 @@ librarian::shelf(
   digest, dplyr, DT, glue, purrr, readr, stringr, tidyr)
 
 # path to folder containing species directories of images
-dir_train_mini <- "/courses/EDS232/inaturalist-2021/train_mini"
+dir_src  <- "/courses/EDS232/inaturalist-2021/train_mini"
+dir_dest <- "~/inat"
+dir.create(dir_dest, showWarnings = F)
 
 # get list of directories, one per species (n = 10,000 species)
-dirs_spp <- list.dirs(dir_train_mini, recursive = F)
+dirs_spp <- list.dirs(dir_src, recursive = F, full.names = T)
 n_spp <- length(dirs_spp)
-n_spp
-```
 
-```{r}
 # set seed (for reproducible results) 
 # just before sampling (otherwise get different results)
 # based on your username (unique amongst class)
@@ -181,6 +178,8 @@ i10 <- sample(1:n_spp, 10)
 # show the 10 indices sampled of the 10,000 possible 
 i10
 ```
+
+
 
 
 ```{r}
@@ -195,52 +194,331 @@ i2 <- i10[1:2]
 basename(dirs_spp)[i2]
 ```
 
-```{r}
-# path to output table of paths, which could be read by R, eg readr::read_csv(), or Python, eg pandas.read_csv()
-inat_spp_images_csv <- "~/inat_spp_images.csv"
 
+```{r}
+# setup data frame with source (src) and destination (dest) paths to images
 d <- tibble(
-  # get 10 species names
-  species = basename(dirs_spp)[i10],
-  # assign TRUE/FALSE for: 10 species (multi-class) and 2 species (binary)
-  spp10 = TRUE,
-  spp2  = c(T,T,rep(F,8)))
-DT::datatable(d)
+  set     = c(rep("spp2", 2), rep("spp10", 10)),
+  dir_sp  = c(dirs_spp[i2], dirs_spp[i10]),
+  tbl_img = map(dir_sp, function(dir_sp){
+    tibble(
+      src_img = list.files(dir_sp, full.names = T),
+      subset  = c(rep("train", 30), rep("validation", 10), rep("test", 10))) })) %>% 
+  unnest(tbl_img) %>% 
+  mutate(
+    sp       = basename(dir_sp),
+    img      = basename(src_img),
+    dest_img = glue("{dir_dest}/{set}/{subset}/{sp}/{img}"))
+
+# show source and destination for first 10 rows of tibble
+d %>% 
+  select(src_img, dest_img)
+```
+
+
+
+
+```{r}
+# iterate over rows, creating directory if needed and copying files 
+d %>% 
+  pwalk(function(src_img, dest_img, ...){
+    dir.create(dirname(dest_img), recursive = T, showWarnings = F)
+    file.copy(src_img, dest_img) })
+
+# uncomment to show the entire tree of your destination directory
+ system(glue("tree {dir_dest}"))
+```
+
+
+
+## 2 Species data
+
+### Data preprocessing
+
+```{r}
+train_dir_spp2 <- paste0(dir_dest,"/spp2/train")
+validation_dir_spp2 <- paste0(dir_dest,"/spp2/validation")
+test_dir_spp2 <- paste0(dir_dest,"/spp2/test")
+```
+
+
+```{r}
+# All images will be rescaled by 1/255
+train_datagen <- image_data_generator(rescale = 1/255)
+validation_datagen <- image_data_generator(rescale = 1/255)
+test_datagen <- image_data_generator(rescale = 1/255)
+
+train_generator_spp2 <- flow_images_from_directory(
+  # This is the target directory
+  train_dir_spp2,
+  # This is the data generator
+  train_datagen,
+  # All images will be resized to 150x150
+  target_size = c(150, 150),
+  batch_size = 10,
+  # Since we use binary_crossentropy loss, we need binary labels
+  class_mode = "binary")
+
+validation_generator_spp2 <- flow_images_from_directory(
+  validation_dir_spp2,
+  validation_datagen,
+  target_size = c(150, 150),
+  batch_size = 10,
+  class_mode = "binary")
+
+test_generator_spp2 <- flow_images_from_directory(
+  test_dir_spp2,
+  test_datagen,
+  target_size = c(150, 150),
+  batch_size = 10,
+  class_mode = "binary")
+```
+
+
+### Neural network
+
+```{r}
+model_spp2_nn <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "relu", input_shape = c(150, 150, 3)) %>% 
+  layer_dense(units = 16, activation = "relu") %>% 
+  layer_dense(units =  1, activation = "sigmoid")
 ```
 
 
 
 ```{r}
-d <- d %>% 
-  mutate(
-    # construct full path to species directory
-    dir_species = file.path(dir_train_mini, species),
-    tbl_images  = purrr::map(dir_species, function(dir){
-      # create a tibble per species
-      tibble(
-        # list files in the species directory (n=50)
-        image = list.files(dir),
-        # assign subset per species
-        subset = c(rep("train", 30), rep("validation", 10), rep("test", 10))) })) %>% 
-  # go from a tibble with 10 species rows containing a nested tbl_images to unnested, ie 10 species * 50 images = 500 rows
-  tidyr::unnest(tbl_images)
+model_spp2_nn %>% compile(
+  optimizer = "rmsprop",
+  loss      = "binary_crossentropy",
+  metrics   = c("accuracy"))
+```
 
-# write tibble to CSV file for subsequent reading
-readr::write_csv(d, inat_spp_images_csv)
 
-# show counts of image files per species and subset
-d %>% 
-  mutate(
-    # truncate species to show one line per species
-    species_trunc = stringr::str_trunc(species, 40)) %>% 
-  select(species_trunc, subset) %>% 
-  table()
+# ??? code breaks here
+but works for cnn
+
+```{r}
+history_spp2_nn <- model_spp2_nn %>% fit(
+  train_generator_spp2,
+  epochs = 20,
+  steps_per_epoch = 5,
+  validation_data = validation_generator_spp2)
+```
+
+
+```{r}
+plot(history_spp2_nn)
 ```
 
 
 
+```{r}
+eval_spp2_nn <- evaluate(model_spp2_nn, test_generator_spp2)
+eval_spp2_nn
+```
 
 
+
+### Convolutional neural network
+
+
+```{r}
+model_spp2_cnn <- keras_model_sequential() %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+                input_shape = c(150, 150, 3)) %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_flatten() %>% 
+  layer_dense(units = 512, activation = "relu") %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+```
+
+
+why not save as new object? why just pipe into compile?
+
+```{r}
+model_spp2_cnn %>% compile(
+  optimizer = "rmsprop",
+  loss      = "binary_crossentropy",
+  metrics   = c("accuracy"))
+```
+
+
+```{r}
+history_spp2_cnn <- model_spp2_cnn %>% fit(
+  train_generator_spp2,
+  epochs = 20,
+  steps_per_epoch = 5,
+  validation_data = validation_generator_spp2)
+```
+
+
+```{r}
+plot(history_spp2_cnn)
+```
+
+
+```{r}
+eval_spp2_cnn <- evaluate(model_spp2_cnn, test_generator_spp2)
+eval_spp2_cnn
+```
+
+### Compare
+
+
+
+
+## 10 Species data
+
+### Data preprocessing
+
+```{r}
+train_dir_spp10 <- paste0(dir_dest,"/spp10/train")
+validation_dir_spp10 <- paste0(dir_dest,"/spp10/validation")
+test_dir_spp10 <- paste0(dir_dest,"/spp10/test")
+```
+
+
+```{r}
+# All images will be rescaled by 1/255
+train_datagen <- image_data_generator(rescale = 1/255)
+validation_datagen <- image_data_generator(rescale = 1/255)
+test_datagen <- image_data_generator(rescale = 1/255)
+
+train_generator_spp10 <- flow_images_from_directory(
+  # This is the target directory
+  train_dir_spp10,
+  # This is the data generator
+  train_datagen,
+  # All images will be resized to 150x150
+  target_size = c(150, 150),
+  batch_size = 5,
+  class_mode = "categorical")
+
+validation_generator_spp10 <- flow_images_from_directory(
+  validation_dir_spp10,
+  validation_datagen,
+  target_size = c(150, 150),
+  batch_size = 5,
+  class_mode = "categorical")
+
+test_generator_spp10 <- flow_images_from_directory(
+  test_dir_spp10,
+  test_datagen,
+  target_size = c(150, 150),
+  batch_size = 5,
+  class_mode = "categorical")
+```
+
+### Neural network
+
+
+```{r}
+model_spp10_nn <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "relu", input_shape = c(150, 150, 3)) %>% 
+  layer_dense(units = 16, activation = "relu") %>% 
+  layer_dense(units = 10, activation = "softmax") # change to 10 units because we have 10 classes
+```
+
+
+
+```{r}
+model_spp10_nn %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+
+# ??? code breaks here
+but works for cnn
+
+
+do I need to flatten?
+
+
+  batch_size = 5?
+  steps_per_epoch = 5?
+
+```{r}
+history_spp10_nn <- model_spp10_nn %>% fit(
+  train_generator_spp10,
+  epochs = 20,
+  steps_per_epoch = 5,
+  validation_data = validation_generator_spp10)
+```
+
+
+```{r}
+plot(history_spp10_nn)
+```
+
+
+
+```{r}
+eval_spp10_nn <- evaluate(model_spp10_nn, test_generator_spp10)
+eval_spp10_nn
+```
+
+
+### Convolutional neural network
+
+
+```{r}
+model_spp10_cnn <- keras_model_sequential() %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+                input_shape = c(150, 150, 3)) %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_flatten() %>% 
+  layer_dense(units = 512, activation = "relu") %>% 
+  layer_dense(units = 10, activation = "softmax")
+```
+
+
+why not save as new object? why just pipe into compile?
+
+```{r}
+model_spp10_cnn %>% compile(
+  optimizer = "rmsprop",
+  loss      = "categorical_crossentropy",
+  metrics   = c("accuracy"))
+```
+
+
+```{r}
+history_spp10_cnn <- model_spp10_cnn %>% fit(
+  train_generator_spp10,
+  epochs = 20,
+  batch_size =5,
+  validation_data = validation_generator_spp10)
+```
+
+
+```{r}
+plot(history_spp10_cnn)
+```
+
+
+```{r}
+eval_spp10_cnn <- evaluate(model_spp10_cnn, test_generator_spp10)
+eval_spp10_cnn
+```
+
+
+
+### Compare
 
 
 
